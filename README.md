@@ -22,6 +22,20 @@ No per-site rules, no AI, no cloud. One dependency set, one command.
 - **Web UI.** Form, live progress, cards or table view, one-click `.xlsx` download, run history that survives restarts, dark theme by default.
 - **Exports.** `items.xlsx`, `items.csv`, `items.json`, `pages.json`, `links.csv`, `changes.json`.
 
+## Screenshots
+
+The form, with run history and schedules below it:
+
+![ScrapeRunner form, history and schedules](docs/form.png)
+
+A finished run: live counters and the detected items as cards, each with photo, title, price and link:
+
+![Items as cards](docs/items.png)
+
+The same items as a table, one click away from an Excel download:
+
+![Items as a table](docs/table.png)
+
 ## Install
 
 Requires Python 3.10+ and, for browser mode, Google Chrome.
