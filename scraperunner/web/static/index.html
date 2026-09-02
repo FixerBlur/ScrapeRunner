@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScrapeRunner</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark";
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>ScrapeRunner</h1>
+    <span class="muted">links, images, text and items from any site</span>
+    <span class="spacer"></span>
+    <button type="button" id="theme-toggle" aria-label="Toggle theme">Dark</button>
+  </header>
+
+  <main class="layout">
+    <form id="crawl-form" class="panel form">
+      <label class="wide">Start URL
+        <input name="url" type="url" required placeholder="https://example.com">
+      </label>
+      <label>Depth
+        <input name="depth" type="number" min="0" max="10" value="1">
+      </label>
+      <label>Max pages
+        <input name="max_pages" type="number" min="1" max="5000" value="50">
+      </label>
+      <label>Mode
+        <select name="mode">
+          <option value="auto">auto (http, real Chrome fallback)</option>
+          <option value="http">http</option>
+          <option value="browser">browser (real Chrome)</option>
+        </select>
+      </label>
+      <label>Delay, s
+        <input name="delay" type="number" min="0" step="0.1" value="0.5">
+      </label>
+      <label>Repeat
+        <select name="repeat_hours">
+          <option value="">once</option>
+          <option value="1">every hour</option>
+          <option value="6">every 6 hours</option>
+          <option value="12">every 12 hours</option>
+          <option value="24">every day</option>
+          <option value="168">every week</option>
+        </select>
+      </label>
+      <label>Pages
+        <input name="pages" placeholder="1-10 or 1,3,5">
+      </label>
+      <label class="wide">Page pattern
+        <input name="page_pattern" placeholder="https://site.com/list?page={page}">
+      </label>
+
+      <div class="checks wide">
+        <label><input type="checkbox" name="extract_text"> Extract text</label>
+        <label><input type="checkbox" name="download_images"> Download images</label>
+        <label><input type="checkbox" name="same_domain" checked> Same domain only</label>
+        <label><input type="checkbox" name="respect_robots" checked> Respect robots.txt</label>
+      </div>
+
+      <details class="wide advanced">
+        <summary>Advanced: network and custom selectors</summary>
+        <div class="form">
+          <label>Concurrency
+            <input name="concurrency" type="number" min="1" max="16" value="4">
+          </label>
+          <label>Retries
+            <input name="retries" type="number" min="0" max="10" value="2">
+          </label>
+          <label>Timeout, s
+            <input name="timeout" type="number" min="1" step="1" value="15">
+          </label>
+          <label class="wide">Proxy
+            <input name="proxy" placeholder="http://user:pass@host:port or socks5://host:port">
+          </label>
+          <p class="hint wide">CSS selectors override item detection when the heuristic gets a site wrong.
+            Card selects one product block; the others are looked up inside each card.</p>
+          <label>Card <input name="sel_card" placeholder="div.product-card"></label>
+          <label>Title <input name="sel_title" placeholder="h3.name"></label>
+          <label>Price <input name="sel_price" placeholder=".price-current"></label>
+          <label>Old price <input name="sel_old_price" placeholder=".price-old"></label>
+          <label>Link <input name="sel_link" placeholder="a.product-link"></label>
+          <label>Image <input name="sel_image" placeholder="img.photo"></label>
+        </div>
+      </details>
+
+      <div class="actions wide">
+        <button type="submit" id="start" class="primary">Start crawl</button>
+        <button type="button" id="cancel" hidden>Cancel</button>
+        <span id="form-error" class="error"></span>
+      </div>
+    </form>
+
+    <section id="progress" class="panel" hidden>
+      <div class="stats">
+        <div><b id="stat-state">running</b><span>state</span></div>
+        <div><b id="stat-pages">0</b><span>pages</span></div>
+        <div><b id="stat-items">0</b><span>items</span></div>
+        <div><b id="stat-links">0</b><span>links</span></div>
+        <div><b id="stat-images">0</b><span>images</span></div>
+        <div><b id="stat-downloaded">0</b><span>downloaded</span></div>
+      </div>
+      <ul id="recent" class="recent"></ul>
+      <p id="job-error" class="error"></p>
+    </section>
+
+    <section id="results" class="panel" hidden>
+      <nav class="tabs">
+        <button data-tab="items" class="active">Items</button>
+        <button data-tab="changes">Changes</button>
+        <button data-tab="pages">Pages</button>
+        <button data-tab="links">Links</button>
+        <button data-tab="images">Images</button>
+        <button data-tab="text">Text</button>
+        <span class="spacer"></span>
+        <a id="dl-items-csv" class="download">items.csv</a>
+        <a id="dl-items-json" class="download">items.json</a>
+        <a id="dl-pages" class="download">pages.json</a>
+        <a id="dl-links" class="download">links.csv</a>
+      </nav>
+      <div id="tab-items" class="tab">
+        <div class="items-bar">
+          <label class="view-toggle"><input type="checkbox" id="items-table"> Show as table</label>
+          <a id="dl-xlsx" class="button-link" hidden>Download table (.xlsx)</a>
+        </div>
+        <div id="items-view"></div>
+      </div>
+      <div id="tab-changes" class="tab" hidden></div>
+      <div id="tab-pages" class="tab" hidden></div>
+      <div id="tab-links" class="tab" hidden></div>
+      <div id="tab-images" class="tab" hidden></div>
+      <div id="tab-text" class="tab" hidden></div>
+    </section>
+
+    <div class="columns">
+      <section class="panel">
+        <h2>History</h2>
+        <div id="history"></div>
+      </section>
+      <section class="panel">
+        <h2>Schedules</h2>
+        <div id="schedules"></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

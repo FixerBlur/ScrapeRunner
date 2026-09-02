@@ -1,0 +1,11 @@
+httpx>=0.27
+beautifulsoup4>=4.12
+lxml>=5.0
+openpyxl>=3.1
+
+# Web UI
+fastapi>=0.115
+uvicorn>=0.30
+
+# Optional: JavaScript-rendered and bot-protected sites (drives your installed Chrome)
+# playwright>=1.45
