@@ -11,7 +11,7 @@ No per-site rules, no AI, no cloud. One dependency set, one command.
 ## Highlights
 
 - **Universal.** Crawls any site breadth-first with depth, page-count and domain limits, and respects `robots.txt`.
-- **Fast.** Pages are fetched by a pool of workers with a per-host delay; transient errors are retried.
+- **Fast and lean.** Pages are fetched by a pool of workers with a per-host delay; transient errors are retried. Results stream to disk as pages arrive, so memory stays flat on long crawls.
 - **Structured items.** Detects repeated cards on listing pages and turns each into a row: title, price, old price, link, image, page, group, text. Several listings on one page are all captured.
 - **Sale prices.** Tells the current price from a struck-through or "old" price.
 - **Custom selectors.** When the heuristic gets a site wrong, give a CSS selector for the card and any field.
@@ -216,8 +216,12 @@ python -m scraperunner.web --host 127.0.0.1 --port 8000
 - Dark theme by default, light theme one click away, choice remembered.
 
 Each run is stored under `results/<job id>/` together with a `job.json` that lets
-the server pick it up again after a restart. Schedules live in
-`results/schedules.json`.
+the server pick it up again after a restart. Runs can be deleted from the History
+panel; a schedule keeps only its newest **Keep runs** (default 30) and deletes
+older ones itself. Schedules live in `results/schedules.json`.
+
+The server has no authentication. It binds to 127.0.0.1 by default; keep it there
+unless everyone on the network may start crawls and read results.
 
 ## Project layout
 
@@ -257,6 +261,10 @@ even when crawling in parallel, and identifies itself in the User-Agent. Browser
 mode is a real browser with a real profile, nothing is spoofed or hidden.
 Bypassing CAPTCHAs or evading bot protection is out of scope. Check a site's
 terms before scraping it, keep delays reasonable, and do not overload servers.
+
+Exported spreadsheets are safe to open: any scraped text that starts with `=`,
+`+`, `-` or `@` is prefixed with an apostrophe so Excel treats it as text, not
+as a formula.
 
 ## License
 

@@ -13,15 +13,16 @@ def fake_run(pages_html):
     from scraperunner.models import Item, PageResult
 
     def run(config, on_page=None, on_image=None, should_stop=None):
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        results = []
-        for url, price in pages_html:
-            page = PageResult(url=url, status=200, items=[Item(title="t", link=url + "#p", image=None, price=price, old_price=None, text="")])
-            results.append(page)
-            if on_page:
-                on_page(page)
-        with (config.output_dir / "pages.json").open("w", encoding="utf-8") as fh:
-            json.dump([p.to_dict() for p in results], fh)
+        from scraperunner.exporter import ExportWriter
+        from scraperunner.runner import CrawlReport
+
+        with ExportWriter(config.output_dir) as writer:
+            for url, price in pages_html:
+                page = PageResult(url=url, status=200, items=[Item(title="t", link=url + "#p", image=None, price=price, old_price=None, text="")])
+                writer.add(page)
+                if on_page:
+                    on_page(page)
+        return CrawlReport(stats=writer.stats, item_rows=writer.item_rows, images=writer.stats.images)
     return run
 
 
@@ -70,6 +71,36 @@ def test_previous_run_of_same_url(tmp_path: Path, monkeypatch):
 
     assert manager.previous(second) is first
     assert manager.previous(first) is None
+
+
+def test_pages_are_not_exposed_while_running_and_delete_removes_folder(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "run_crawl", fake_run([("https://s.com/", "10 ₴")]))
+    manager = JobManager(tmp_path)
+    job = manager.start(ScrapeConfig(start_url="https://s.com/"))
+    wait_done(job)
+    assert job.summary()["items"] == 1
+    assert manager.delete(job.id)
+    assert manager.get(job.id) is None and not (tmp_path / job.id).exists()
+
+    running = Job(id="r", config=ScrapeConfig(start_url="https://s.com/", output_dir=tmp_path / "r"))
+    assert running.pages == []          # never read from a half-written pages.json
+    manager._jobs["r"] = running
+    assert not manager.delete("r")      # active runs are protected
+
+
+def test_schedule_keeps_only_the_newest_runs(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "run_crawl", fake_run([("https://s.com/", "10 ₴")]))
+    manager = JobManager(tmp_path)
+    scheduler = Scheduler(manager, tmp_path / "schedules.json", tick_seconds=3600)
+    schedule, first = scheduler.add(ScrapeConfig(start_url="https://s.com/"), interval_hours=1, keep_runs=2)
+    wait_done(first)
+    for _ in range(3):
+        wait_done(scheduler.run_now(schedule.id))
+    kept = manager.runs_of(schedule.id)
+    assert len(kept) == 2
+    assert all((tmp_path / job.id).exists() for job in kept)
+    assert not (tmp_path / first.id).exists()
+    scheduler.stop()
 
 
 def test_scheduler_persists_and_launches_due_runs(tmp_path: Path, monkeypatch):

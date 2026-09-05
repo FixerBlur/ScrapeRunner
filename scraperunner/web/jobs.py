@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field, replace
@@ -10,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from scraperunner.config import ScrapeConfig
+from scraperunner.exporter import CrawlStats
 from scraperunner.models import PageResult
 from scraperunner.runner import run_crawl
 
@@ -32,7 +34,11 @@ class JobState(str, Enum):
 
 @dataclass
 class Job:
-    """One crawl: live while its thread runs, then restored from ``job.json`` on later starts."""
+    """One crawl: live counters while its thread runs, then a ``job.json`` restored on later starts.
+
+    Pages are never held in memory during a run; finished runs load them from
+    ``pages.json`` on demand.
+    """
 
     id: str
     config: ScrapeConfig
@@ -43,17 +49,23 @@ class Job:
     schedule_id: str | None = None
     local_images: dict[str, str] = field(default_factory=dict)  # source URL -> served path
     stats: dict = field(default_factory=dict)                    # frozen at completion
+    live: CrawlStats = field(default_factory=CrawlStats, repr=False)
     stop_requested: threading.Event = field(default_factory=threading.Event, repr=False)
     _pages: list[PageResult] | None = field(default=None, repr=False)
 
     @property
     def pages(self) -> list[PageResult]:
+        if self.state.is_active:
+            return []
         if self._pages is None:
             self._pages = self._load_pages()
         return self._pages
 
     def summary(self) -> dict:
-        stats = self.stats if not self.state.is_active else compute_stats(self._pages or [], self.local_images)
+        if self.state.is_active:
+            stats = {**self.live.as_dict(), "downloaded": len(self.local_images)}
+        else:
+            stats = self.stats
         return {
             "id": self.id,
             "state": self.state.value,
@@ -62,7 +74,7 @@ class Job:
             "created_at": self.created_at,
             "finished_at": self.finished_at,
             "schedule_id": self.schedule_id,
-            "recent": [page.url for page in (self._pages or [])[-8:]] if self.state.is_active else [],
+            "recent": self.live.recent if self.state.is_active else [],
             **stats,
         }
 
@@ -104,17 +116,6 @@ class Job:
             return [PageResult.from_dict(page) for page in json.load(fh)]
 
 
-def compute_stats(pages: list[PageResult], local_images: dict[str, str]) -> dict:
-    return {
-        "pages_done": len(pages),
-        "failed": sum(1 for page in pages if page.error),
-        "items": sum(len(page.items) for page in pages),
-        "links": sum(len(page.links) for page in pages),
-        "images": len({image for page in pages for image in page.images}),
-        "downloaded": len(local_images),
-    }
-
-
 class JobManager:
     """Starts crawls in daemon threads; finished runs persist on disk and are restored on startup."""
 
@@ -126,7 +127,6 @@ class JobManager:
     def start(self, config: ScrapeConfig, schedule_id: str | None = None) -> Job:
         job_id = uuid4().hex[:12]
         job = Job(id=job_id, config=replace(config, output_dir=self._root / job_id), schedule_id=schedule_id)
-        job._pages = []
         self._jobs[job_id] = job
         threading.Thread(target=self._run, args=(job,), name=f"crawl-{job_id}", daemon=True).start()
         return job
@@ -136,6 +136,10 @@ class JobManager:
 
     def all(self) -> list[Job]:
         return sorted(self._jobs.values(), key=lambda job: job.created_at, reverse=True)
+
+    def runs_of(self, schedule_id: str) -> list[Job]:
+        """Finished runs of one schedule, newest first."""
+        return [job for job in self.all() if job.schedule_id == schedule_id and not job.state.is_active]
 
     def previous(self, job: Job) -> Job | None:
         """The latest completed run of the same start URL before *job*."""
@@ -154,6 +158,15 @@ class JobManager:
         job.stop_requested.set()
         return True
 
+    def delete(self, job_id: str) -> bool:
+        """Remove a finished run and its folder. Active runs must be cancelled first."""
+        job = self._jobs.get(job_id)
+        if job is None or job.state.is_active:
+            return False
+        shutil.rmtree(job.config.output_dir, ignore_errors=True)
+        del self._jobs[job_id]
+        return True
+
     def _run(self, job: Job) -> None:
         def on_image(url: str, path: Path | None) -> None:
             job.state = JobState.DOWNLOADING
@@ -161,20 +174,16 @@ class JobManager:
                 job.local_images[url] = f"/results/{path.relative_to(self._root).as_posix()}"
 
         try:
-            run_crawl(
-                job.config,
-                on_page=job.pages.append,
-                on_image=on_image,
-                should_stop=job.stop_requested.is_set,
-            )
+            report = run_crawl(job.config, on_page=job.live.add, on_image=on_image, should_stop=job.stop_requested.is_set)
         except Exception as exc:  # surfaced to the UI, so keep it broad
             log.exception("Job %s failed", job.id)
             job.state = JobState.FAILED
             job.error = str(exc)
+            job.stats = {**job.live.as_dict(), "downloaded": len(job.local_images)}
         else:
             job.state = JobState.CANCELLED if job.stop_requested.is_set() else JobState.DONE
+            job.stats = {**report.stats.as_dict(), "downloaded": len(report.downloaded)}
         job.finished_at = time.time()
-        job.stats = compute_stats(job.pages, job.local_images)
         self._save(job)
 
     def _save(self, job: Job) -> None:

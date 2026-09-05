@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+from bs4 import BeautifulSoup
+
 
 @dataclass
 class FetchResult:
@@ -12,10 +14,18 @@ class FetchResult:
     status: int
     html: str
     content_type: str = ""
+    _soup: BeautifulSoup | None = field(default=None, repr=False, compare=False)
 
     @property
     def is_html(self) -> bool:
         return "html" in self.content_type or not self.content_type
+
+    @property
+    def soup(self) -> BeautifulSoup:
+        """Parsed once, shared by the JS-shell heuristic and the extractors."""
+        if self._soup is None:
+            self._soup = BeautifulSoup(self.html, "lxml")
+        return self._soup
 
 
 @dataclass

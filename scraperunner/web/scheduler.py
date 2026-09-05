@@ -24,6 +24,7 @@ class Schedule:
     created_at: float
     next_run: float
     last_job_id: str | None = None
+    keep_runs: int = 30  # older finished runs of this schedule are deleted
 
     def to_dict(self) -> dict:
         return {
@@ -33,6 +34,7 @@ class Schedule:
             "created_at": self.created_at,
             "next_run": self.next_run,
             "last_job_id": self.last_job_id,
+            "keep_runs": self.keep_runs,
         }
 
     @classmethod
@@ -44,6 +46,7 @@ class Schedule:
             created_at=data["created_at"],
             next_run=data["next_run"],
             last_job_id=data.get("last_job_id"),
+            keep_runs=data.get("keep_runs", 30),
         )
 
     def summary(self) -> dict:
@@ -63,11 +66,13 @@ class Scheduler:
         self._stop = threading.Event()
         threading.Thread(target=self._loop, name="scheduler", daemon=True).start()
 
-    def add(self, config: ScrapeConfig, interval_hours: float, run_now: bool = True) -> tuple[Schedule, Job | None]:
+    def add(
+        self, config: ScrapeConfig, interval_hours: float, keep_runs: int = 30, run_now: bool = True
+    ) -> tuple[Schedule, Job | None]:
         now = time.time()
         schedule = Schedule(
             id=uuid4().hex[:12], config=config, interval_hours=interval_hours,
-            created_at=now, next_run=now + interval_hours * 3600,
+            created_at=now, next_run=now + interval_hours * 3600, keep_runs=keep_runs,
         )
         with self._lock:
             self._schedules[schedule.id] = schedule
@@ -114,10 +119,17 @@ class Scheduler:
         self._stop.set()
 
     def _launch(self, schedule: Schedule) -> Job:
+        self._prune(schedule)
         job = self._manager.start(schedule.config, schedule_id=schedule.id)
         schedule.last_job_id = job.id
         log.info("Schedule %s started job %s", schedule.id, job.id)
         return job
+
+    def _prune(self, schedule: Schedule) -> None:
+        """Keep the newest ``keep_runs - 1`` finished runs so the new one fits the quota."""
+        for old in self._manager.runs_of(schedule.id)[max(schedule.keep_runs - 1, 0):]:
+            self._manager.delete(old.id)
+            log.info("Schedule %s removed old run %s", schedule.id, old.id)
 
     def _loop(self) -> None:
         while not self._stop.wait(self._tick):

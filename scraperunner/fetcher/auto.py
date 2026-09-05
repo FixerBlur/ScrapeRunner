@@ -20,9 +20,8 @@ _MIN_ANCHORS = 3
 _MIN_TEXT_CHARS = 300
 
 
-def looks_js_rendered(html: str) -> bool:
-    """Heuristic: does this HTML look like an empty shell waiting for JS?"""
-    soup = BeautifulSoup(html, "lxml")
+def looks_js_rendered(soup: BeautifulSoup) -> bool:
+    """Heuristic: does this page look like an empty shell waiting for JS?"""
     anchors = len(soup.find_all("a"))
     return anchors < _MIN_ANCHORS or len(extract_text(soup)) < _MIN_TEXT_CHARS
 
@@ -39,7 +38,7 @@ class AutoFetcher(Fetcher):
 
     def fetch(self, url: str) -> FetchResult:
         result = self._http.fetch(url)
-        if result.status == 200 and result.is_html and looks_js_rendered(result.html):
+        if result.status == 200 and result.is_html and looks_js_rendered(result.soup):
             browser = self._get_browser()
             if browser is not None:
                 log.info("Page looks JS-rendered, retrying with browser: %s", url)

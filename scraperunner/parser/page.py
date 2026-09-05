@@ -14,7 +14,7 @@ def parse_page(
     fetched: FetchResult, depth: int = 0, with_text: bool = False, selectors: Selectors = Selectors()
 ) -> PageResult:
     """Turn raw HTML into a structured :class:`PageResult`."""
-    soup = BeautifulSoup(fetched.html, "lxml")
+    soup = fetched.soup
     base_url = _resolve_base(soup, fetched.final_url)
     page = PageResult(
         url=fetched.final_url,
@@ -26,7 +26,7 @@ def parse_page(
         items=extract_items(soup, base_url, selectors),
     )
     if with_text:
-        page.text = extract_text(soup)  # last: it strips tags from the soup
+        page.text = extract_text(soup)
     return page
 
 

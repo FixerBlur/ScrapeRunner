@@ -55,6 +55,17 @@ def test_single_worker_is_sequential():
     assert len(pages) == 6
 
 
+def test_stop_request_ends_the_crawl_before_the_next_fetch():
+    config = ScrapeConfig(start_url="https://s.com/", depth=3, max_pages=100, delay=0, respect_robots=False, mode=FetchMode.HTTP, concurrency=4)
+    site = SlowSite()
+    seen = []
+    crawler = Crawler(config, site, should_stop=lambda: len(seen) >= 2)
+    for page in crawler.crawl():
+        seen.append(page)
+    assert len(seen) == 2
+    assert len(site.calls) <= 2 + config.concurrency  # in-flight fetches at most, nothing after
+
+
 def test_host_throttle_spaces_requests_per_host():
     throttle = HostThrottle(delay=0.1)
     started = time.monotonic()

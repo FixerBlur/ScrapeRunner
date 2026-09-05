@@ -7,7 +7,7 @@ from pathlib import Path
 
 from scraperunner.compare import compare_items
 from scraperunner.config import DEFAULT_USER_AGENT, FetchMode, ScrapeConfig, Selectors
-from scraperunner.exporter import export_changes_json, flat_items, read_items_json
+from scraperunner.exporter import export_changes_json, read_items_json
 from scraperunner.models import Item
 from scraperunner.parser.items import validate_selectors
 from scraperunner.runner import run_crawl
@@ -97,15 +97,16 @@ def config_from_args(args: argparse.Namespace) -> ScrapeConfig:
 def run(config: ScrapeConfig, compare_with: Path | None = None) -> int:
     report = run_crawl(config)
     downloaded = f" (downloaded: {len(report.downloaded)})" if config.download_images else ""
+    stats = report.stats
     print(
-        f"\nPages: {len(report.pages)} (failed: {report.failed})"
-        f"\nItems: {report.total_items}"
-        f"\nLinks: {report.total_links}"
+        f"\nPages: {stats.pages} (failed: {stats.failed})"
+        f"\nItems: {stats.items}"
+        f"\nLinks: {stats.links}"
         f"\nImages: {len(report.images)}{downloaded}"
         f"\nOutput: {config.output_dir.resolve()}"
     )
     if compare_with is not None:
-        print_changes(compare_with, [Item(**{k: v for k, v in row.items() if k != "page"}) for row in flat_items(report.pages)], config.output_dir)
+        print_changes(compare_with, report.items, config.output_dir)
     return 0
 
 

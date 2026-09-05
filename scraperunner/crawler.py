@@ -5,7 +5,7 @@ import random
 import threading
 import time
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from urllib.parse import urlparse
 
@@ -29,10 +29,17 @@ class Crawler:
     complete, and newly found links join the queue at depth + 1.
     """
 
-    def __init__(self, config: ScrapeConfig, fetcher: Fetcher, robots: RobotsCache | None = None) -> None:
+    def __init__(
+        self,
+        config: ScrapeConfig,
+        fetcher: Fetcher,
+        robots: RobotsCache | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> None:
         self._config = config
         self._fetcher = fetcher
         self._robots = robots
+        self._should_stop = should_stop or (lambda: False)
         self._throttle = HostThrottle(config.delay)
 
     def crawl(self) -> Iterator[PageResult]:
@@ -46,7 +53,7 @@ class Crawler:
 
         pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="fetch")
         try:
-            while (queue or pending) and pages_done < config.max_pages:
+            while (queue or pending) and pages_done < config.max_pages and not self._should_stop():
                 while queue and len(pending) < config.concurrency and pages_done + len(pending) < config.max_pages:
                     url, depth = queue.popleft()
                     if self._allowed(url):
@@ -60,6 +67,8 @@ class Crawler:
                 for future in finished:
                     _, depth = pending.pop(future)
                     result = future.result()
+                    if result is None:  # skipped because a stop was requested
+                        continue
                     pages_done += 1
                     if depth < config.depth:
                         for link in self._crawlable_links(result):
@@ -67,6 +76,8 @@ class Crawler:
                                 visited.add(link)
                                 queue.append((link, depth + 1))
                     yield result
+                    if self._should_stop():
+                        return
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
 
@@ -85,8 +96,10 @@ class Crawler:
             seeds.append(normalized)
         return seeds
 
-    def _visit(self, url: str, depth: int) -> PageResult:
+    def _visit(self, url: str, depth: int) -> PageResult | None:
         self._throttle.wait(url)
+        if self._should_stop():
+            return None
         log.info("[depth %d] %s", depth, url)
         try:
             fetched = self._fetcher.fetch(url)

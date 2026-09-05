@@ -33,6 +33,7 @@ function readForm() {
     respect_robots: data.has("respect_robots"),
     selectors,
     repeat_hours: text("repeat_hours") ? Number(text("repeat_hours")) : null,
+    keep_runs: number("keep_runs"),
   };
 }
 
@@ -123,10 +124,24 @@ async function loadHistory() {
         el("td", { className: "url", textContent: job.start_url }),
         el("td", { textContent: job.state + (job.schedule_id ? " ⏱" : "") }),
         el("td", { className: "num", textContent: job.items ?? "" }),
-        el("td", {}, [button("Open", () => watch(job.id), "small")]),
+        el("td", { className: "row-actions" }, [
+          button("Open", () => watch(job.id), "small"),
+          button("Delete", () => deleteJob(job), "small"),
+        ]),
       ])
     )),
   ]));
+}
+
+async function deleteJob(job) {
+  if (job.state === "running" || job.state === "downloading") return;
+  await api(`/api/jobs/${job.id}`, { method: "DELETE" });
+  if (job.id === jobId) {
+    $("#results").hidden = true;
+    $("#progress").hidden = true;
+    jobId = null;
+  }
+  loadHistory();
 }
 
 async function loadSchedules() {

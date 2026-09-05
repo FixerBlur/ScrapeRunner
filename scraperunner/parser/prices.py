@@ -4,7 +4,10 @@ import re
 
 from bs4 import Tag
 
-_CURRENCY = r"(?:₴|грн\.?|uah|\$|€|eur|usd|£|zł|₽|руб\.?)"
+_CURRENCY = (
+    r"(?:₴|грн\.?|uah|\$|€|eur|usd|£|gbp|zł|pln|₽|руб\.?|rub|kč|czk|¥|jpy|cny|₹|inr|₩|krw|₺|try"
+    r"|chf|kr\.?|sek|nok|dkk|ft|huf|lei|ron|лв\.?|bgn|cad|aud|nzd|₪|ils|₱|php|฿|thb|r\$|brl|mxn)"
+)
 _NUMBER = r"\d{1,3}(?:[ \u00a0,.]\d{3})*(?:[.,]\d{1,2})?"
 PRICE = re.compile(rf"(?:{_CURRENCY}\s*{_NUMBER}|{_NUMBER}\s*{_CURRENCY})", re.IGNORECASE)
 # An element that is nothing but a price, optionally prefixed with "from".

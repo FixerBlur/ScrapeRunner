@@ -38,6 +38,7 @@ class JobRequest(BaseModel):
     download_images: bool = False
     selectors: dict[str, str | None] = Field(default_factory=dict)
     repeat_hours: float | None = Field(None, gt=0, le=24 * 30)
+    keep_runs: int = Field(30, ge=1, le=1000)
 
     @field_validator("pages", "page_pattern", "proxy", mode="before")
     @classmethod
@@ -55,7 +56,7 @@ class JobRequest(BaseModel):
         return cleaned
 
     def to_config(self) -> ScrapeConfig:
-        data = self.model_dump(exclude={"url", "selectors", "repeat_hours"})
+        data = self.model_dump(exclude={"url", "selectors", "repeat_hours", "keep_runs"})
         return ScrapeConfig(start_url=self.url, selectors=Selectors(**self.selectors), **data)
 
 
@@ -88,7 +89,7 @@ def create_app(results_root: Path = Path("results")) -> FastAPI:
     def start_job(request: JobRequest) -> dict:
         config = request.to_config()
         if request.repeat_hours:
-            schedule, job = scheduler.add(config, request.repeat_hours)
+            schedule, job = scheduler.add(config, request.repeat_hours, keep_runs=request.keep_runs)
             return {**job.summary(), "schedule": schedule.summary()}
         return manager.start(config).summary()
 
@@ -112,6 +113,13 @@ def create_app(results_root: Path = Path("results")) -> FastAPI:
             [item for page in job.pages for item in page.items],
         )
         return {"against": previous.summary(), "changes": changes.to_dict()}
+
+    @app.delete("/api/jobs/{job_id}")
+    def delete_job(job_id: str) -> dict:
+        job = job_or_404(job_id)
+        if job.state.is_active:
+            raise HTTPException(409, "Cancel the run before deleting it")
+        return {"deleted": manager.delete(job_id)}
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel_job(job_id: str) -> dict:
